@@ -1,0 +1,130 @@
+// メールを件名で検索して一覧作成を実行するマクロ
+// by ヒラメ
+//
+// Version 1.03 2019/09/11 件名が空欄であれば実行しないように変更
+// Version 1.02 2019/09/02 検索結果をスレッド表示するように変更
+// Version 1.01 2019/08/19 YenEncode追加、検索対象に草稿を含める
+// Version 1.00 2019/08/16 作成
+//
+// 使い方
+//  メールを1件選択してマクロを実行してください。
+//  そのメールの前後31日間に送受信しているメールを件名をキーワードに検索します。
+//
+// 改造等はご自由にどうぞ。
+//
+
+Main:
+
+if(platform & 0x800000){
+  //message "秀丸メールデス";
+}else{
+  //message "秀丸エディタデス";
+  message "このマクロは秀丸メール本体で実行してください。";
+  endmacro;
+}
+
+loaddll "tkinfo.dll";
+
+if(!dllfunc("IsHidemaruMailMain")){
+  message "このマクロは秀丸メール本体で実行してください。";
+  endmacro;
+}
+
+if(dllfunc("MailType") == -1){
+  //message "このマクロはメールを一つ選択してから実行してください。";
+  endmacro;
+}
+
+
+// 外国語メールでも文字化けしないようにおまじない
+#n = dllfunc("SetJapaneseCodePageMode", 1);
+
+// 検索パック復元予約
+#n = dllfunc("AutoRestoreFindPack");
+
+// 件名取得
+$subject = dllfuncstr("CurrentHeader", "Subject");
+
+if($subject == ""){
+  message "このメールには件名が設定されていません。";
+  endmacro;
+}
+
+// 日付取得
+$date = dllfuncstr("CurrentHeader", "Date");
+
+//message $subject;
+
+loaddll "HmJre.dll";
+while(true){
+  #n = 0;
+  
+  //前後の空白除去
+  call Trim $subject;
+  $subject = $$return;
+  
+  #n = dllfunc("SetUnicodeIndexAutoConvert", 1);
+  #n = dllfunc("NotifyEncode", encode);
+  
+  // 文字列先頭から Re: Fw: [~] を取り除く
+  $s = dllfuncstr("ReplaceRegularNoCaseSense",
+                  "^((re|fwd?) ?[;:]|\\[[^\\]]*\\]) *",
+                  $subject, 0, "", 0);
+  if($s != ""){
+    $subject = $s;
+  }else{
+    // 見つからなかった場合、または最終的に空白になってしまう場合、
+    // 前回の結果のままとする
+    break;
+  }
+}
+freedll; // HmJre.dll 開放
+loaddll "tkinfo.dll";
+
+$subject = dllfuncstr("YenEncode", $subject);
+
+// 選択しているメールの前後31日の日付を取得
+$date1 = dllfuncstr("ShiftDate", $date, "-31");
+$date2 = dllfuncstr("ShiftDate", $date, "+31");
+// 日付書式を整形
+$date1 = dllfuncstr("FormatDate", $date1, "YYYY/MM/DD");
+$date2 = dllfuncstr("FormatDate", $date2, "YYYY/MM/DD");
+
+#n = dllfunc("SetFindPack", 
+             "(\"" + $subject + "\", target=subject)and"+
+             "(\"\", target=smallheaderbody)and"+
+             "(\"\", target=smallheaderbody)and"+"
+             (\"\", target=smallheaderbody), "+
+             "flag=date=" + $date1 + "-" + $date2 +
+             ", subfolder=0, inmail=2, hilight=1");
+
+// 検索して一覧作成、マクロ終了後に遅延して実行、既存の一覧を閉じない、一覧表示
+// 実行後はすぐにマクロを終了させること
+//#n = dllfunc("StartDoGrep2", "\\CurrentAccount", "受信+送信済み+ユーザー", 0);
+
+// 対象：現在アカウントのゴミ箱を除く全フォルダ
+if(dllfunc("HidemaruMailVersion") * 100 + dllfunc("HidemaruMailVersionBeta") > 69303){
+  // バージョンが6.93Beta3より新しい
+  #n = dllfunc("StartDoGrep2", "\\CurrentAccount",
+               ",exclude=" + dllfuncstr("CurrentAccount") + "\\ゴミ箱", 1);
+}else{
+  //検索パックが復元されるようDoGrep2を実行する（それでもフォルダ指定にはゴミが残る・・）
+  #n = dllfunc("DoGrep2", "\\CurrentAccount",
+               ",exclude=" + dllfuncstr("CurrentAccount") + "\\ゴミ箱", 1);
+}
+
+#n = dllfunc("SetJapaneseCodePageMode", 0);
+freedll;
+endmacro;
+
+
+Trim:
+  //文字列前後の半角スペースを削除する
+  // call Trim $1 [,$2]
+  //        $1: 処理対象文字列
+  //        $2: 削除したい文字列、省略した場合はスペース
+  // 戻り値 処理後の文字列
+  if($$2 == "") $$2= " ";
+  while(wcsleftstr ($$1,wcslen($$2))==$$2)$$1=wcsrightstr($$1,wcslen($$1)-wcslen($$2));
+  while(wcsrightstr($$1,wcslen($$2))==$$2)$$1=wcsleftstr ($$1,wcslen($$1)-wcslen($$2));
+return $$1;
